@@ -1,19 +1,11 @@
 (function($, undefined) {
 
-// change URL (requires HTML5)
-if (!(window.history && history.pushState)) return; // check borrowed from Modernizr
+// Is History API reliably supported? (based on Modernizr & PJAX)
+if (!(window.history && history.pushState && window.history.replaceState && !navigator.userAgent.match(/((iPod|iPhone|iPad).+\bOS\s+[1-4]|WebApps\/.+CFNetwork)/))) return;
 
 $.nette.ext('redirect', false);
 
 var findSnippets = function () {
-	var result = [];
-	$('[id^="snippet--"]').each(function () {
-		var $el = $(this);
-		result.push({
-			id: $el.attr('id'),
-			html: $el.html()
-		});
-	});
 	return result;
 };
 var handleState = function (context, name, args) {
@@ -34,19 +26,25 @@ $.nette.ext('history', {
 			};
 		}
 
-		this.initialState = {
+		window.history.replaceState(this.state = {
 			nette: true,
 			href: window.location.href,
 			title: document.title,
-			ui: findSnippets()
-		};
+			ui: []
+		}, document.title, window.location.href);
+		$('[id^="snippet--"]').each(function () {
+			var $el = $(this);
+			this.state.ui.push({
+				id: $el.attr('id'),
+				html: $el.html()
+			});
+		});
 
 		$(window).on('popstate.nette', $.proxy(function (e) {
-			var state = e.originalEvent.state || this.initialState;
+			var state = e.originalEvent.state;
 			if (window.history.ready || !state || !state.nette) return;
-			if (this.cache) {
-				handleState(this, 'UI', [state.ui]);
-				handleState(this, 'title', [state.title]);
+			if (this.cache && this.handleUI) {
+				this.handleUI(state.ui);
 			} else {
 				$.nette.ajax({
 					url: state.href,
@@ -55,7 +53,9 @@ $.nette.ext('history', {
 			}
 		}, this));
 	},
-	before: function (settings, ui) {
+	start: function (xhr, settings) {
+		if (xhr.readyState <= 0) return;
+
 		if (!settings.nette) {
 			this.href = null;
 		} else if (!settings.nette.form) {
@@ -65,22 +65,27 @@ $.nette.ext('history', {
 		} else {
 			this.href = null;
 		}
+		window.history.pushState(null, '', settings.url);
 	},
 	success: function (payload) {
 		if (payload.redirect) {
 			this.href = payload.redirect;
 		}
+		if (this.href === window.location.href) {
+			this.href = null;
+		}
 		if (this.href && this.href != window.location.href) {
-			history.pushState({
+			window.history.replaceState(this.state = {
 				nette: true,
 				href: this.href,
 				title: document.title,
-				payload: findSnippets()
+				ui: payload.snippets
 			}, document.title, this.href);
 		}
 		this.href = null;
 	}
 }, {
+	state: null,
 	href: null,
 	cache: true
 });
